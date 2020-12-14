@@ -1,0 +1,5 @@
+{
+    "python.terminal.activateEnvironment": false,
+    "python.pythonPath": "c:/ProgramData/Anaconda3/python.exe",
+    "terminal.integrated.shellArgs.windows": ["-ExecutionPolicy","Bypass","-NoLogo","-NoProfile","-NoExit", "-Command", "./conda_init.ps1"]
+}
