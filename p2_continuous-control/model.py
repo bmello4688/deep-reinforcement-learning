@@ -46,15 +46,15 @@ class Actor(nn.Module):
             state = state.view(1, state.size(0))
         
         x = self.fc1(state)
-        x = self.bn1(x)
+        #x = self.bn1(x)
         x = F.relu(x)
         
         x = self.fc2(x)
-        x = self.bn2(x)
+        #x = self.bn2(x)
         x = F.relu(x)
         
         x = self.fc3(x)
-        x = self.bn3(x)
+        #x = self.bn3(x)
         
         return torch.tanh(x)
 
@@ -109,8 +109,8 @@ class Critic(nn.Module):
         
         state_action = torch.cat((state, action), dim=1)
         
-        q1 = F.relu(self.bn1q1(self.fcs1q1(state_action)))
-        q1 = F.relu(self.bn2q1(self.fc2q1(q1)))
+        q1 = F.relu(self.fcs1q1(state_action))
+        q1 = F.relu(self.fc2q1(q1))
         q1 = self.fc3q1(q1)
         
         #q2 = F.relu(self.bn1q2(self.fcs1q2(state_action)))
