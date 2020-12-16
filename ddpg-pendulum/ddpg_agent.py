@@ -82,13 +82,14 @@ class Agent():
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(device)
+        state = torch.reshape(state, (1, state.size(0)))
         self.actor_local.eval()
         with torch.no_grad():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
         if add_noise:
             action += self.noise.sample()
-        return np.clip(action, -1, 1)
+        return np.clip(action, -1, 1).flatten()
 
     def reset(self):
         self.noise.reset()

@@ -42,9 +42,6 @@ class Actor(nn.Module):
     def forward(self, state):
         """Build an actor (policy) network that maps states -> actions."""
         
-        if state.ndim == 1:
-            state = state.view(1, state.size(0))
-        
         x = self.fc1(state)
         x = self.bn1(x)
         x = F.relu(x)
@@ -92,9 +89,6 @@ class Critic(nn.Module):
     def forward(self, state, action):
         """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
         
-        if state.ndim == 1:
-            state = state.view(1, state.size(0))
-                  
         x = self.fcs1(state)
         x = self.bn1(x)   
         x = F.relu(x)
