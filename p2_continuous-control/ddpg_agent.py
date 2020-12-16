@@ -41,6 +41,7 @@ class Agent():
         print(f"Using device: {device}")
         self.replay_buffer_size = replay_buffer_size
         self.gamma = gamma
+        self.tau = tau
         
         self.state_size = state_size
         self.action_size = action_size
@@ -51,7 +52,7 @@ class Agent():
         self.actor_target = Actor(state_size, action_size, random_seed, fc1_units, fc2_units).to(device)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=actor_learning_rate)
     
-        #hard
+        #hard update
         self.soft_update(self.actor_local, self.actor_target, 1)   
         
         # Critic Network (w/ Target Network)
@@ -59,7 +60,7 @@ class Agent():
         self.critic_target = Critic(state_size, action_size, random_seed, fc1_units, fc2_units).to(device)
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=critic_learning_rate, weight_decay=l2_weight_decay)
 
-        #hard
+        #hard update
         self.soft_update(self.critic_local, self.critic_target, 1)   
         
         # Noise process
@@ -131,8 +132,8 @@ class Agent():
         self.actor_optimizer.step()
 
         # ----------------------- update target networks ----------------------- #
-        self.soft_update(self.critic_local, self.critic_target, TAU)
-        self.soft_update(self.actor_local, self.actor_target, TAU)                   
+        self.soft_update(self.critic_local, self.critic_target, self.tau)
+        self.soft_update(self.actor_local, self.actor_target, self.tau)                   
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
@@ -145,10 +146,8 @@ class Agent():
             tau (float): interpolation parameter 
         """
         
-        #add noise to params on update
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            noise = torch.randn(local_param.size()).to(device)
-            target_param.data.copy_(tau*(local_param.data + noise) + (1.0-tau)*(target_param.data))
+            target_param.data.copy_(tau*local_param.data + ((1.0-tau)*target_param.data))
 
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
