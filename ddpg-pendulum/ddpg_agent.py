@@ -19,6 +19,10 @@ WEIGHT_DECAY = 0        # L2 weight decay
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+#Adaptive param noise
+#https://openai.com/blog/better-exploration-with-parameter-noise/#:~:text=Parameter%20noise%20helps%20algorithms%20more%20efficiently%20explore%20the,with%20parameter%20noise%20often%20develop%20a%20high-scoring%20gallop.
+#https://github.com/openai/baselines/tree/master/baselines/ddpg
+
 class Agent():
     """Interacts with and learns from the environment."""
     
@@ -37,6 +41,7 @@ class Agent():
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, random_seed).to(device)
+        self.actor_perturbed = Actor(state_size, action_size, random_seed).to(device)
         self.actor_target = Actor(state_size, action_size, random_seed).to(device)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
 
@@ -46,7 +51,10 @@ class Agent():
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
 
         # Noise process
-        self.noise = OUNoise(action_size, random_seed)
+        self.action_noise = OUNoise(action_size, random_seed)
+        self.state_noise = OUNoise(state_size, random_seed)
+        
+        self.param_noise = AdaptiveParameterNoise(initial_stddev=0.05,desired_action_stddev=0.3, adaptation_coefficient=1.05)
 
         # Replay memory
         self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
@@ -61,19 +69,55 @@ class Agent():
             experiences = self.memory.sample()
             self.learn(experiences, GAMMA)
 
-    def act(self, state, add_noise=True):
+    def act(self, state, add_noise=True, add_param_noise=False):
         """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(device)
         self.actor_local.eval()
+        self.actor_perturbed.eval()
         with torch.no_grad():
-            action = self.actor_local(state).cpu().data.numpy()
+            if add_param_noise:
+                self._perturb_actor_parameters()
+                action = self.actor_perturbed(state).cpu().data.numpy()
+            else:
+                action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
         if add_noise:
-            action += self.noise.sample()
+            action += self.action_noise.sample()
         return np.clip(action, -1, 1)
+    
+    def _ddpg_distance_metric(self, actions1, actions2):
+        """
+        Compute "distance" between actions taken by two policies at the same states
+        Expects numpy arrays
+        """
+        diff = actions1-actions2
+        mean_diff = np.mean(np.square(diff), axis=0)
+        dist = np.sqrt(np.mean(mean_diff))
+        return dist
+    
+    def _perturb_actor_parameters(self):
+        """Apply parameter noise to actor model, for exploration"""
+        #hard
+        self.soft_update(self.actor_perturbed, self.actor_local, 1)
+        params = self.actor_perturbed.state_dict()
+        for name in params:
+            if 'ln' in name: 
+                pass 
+            param = params[name]
+            random = torch.randn(param.shape)
+            if torch.cuda.is_available():
+                random = random.cuda()
+            param += random * self.param_noise.current_stddev
 
     def reset(self):
-        self.noise.reset()
+        self.action_noise.reset()
+        if len(self.memory) > 0:
+            _, unperturbed_actions, _, _, _ = self.memory.sample()
+            unperturbed_actions = unperturbed_actions.cpu().data.numpy()
+            noise_state = self.state_noise.sample()
+            perturbed_actions = self.act(noise_state, False, False)
+            ddpg_dist = self._ddpg_distance_metric(perturbed_actions, unperturbed_actions)
+            self.param_noise.adapt(ddpg_dist)
 
     def learn(self, experiences, gamma):
         """Update policy and value parameters using given batch of experience tuples.
@@ -150,6 +194,36 @@ class OUNoise:
         dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
         self.state = x + dx
         return self.state
+
+class AdaptiveParameterNoise:
+    def __init__(self, initial_stddev=0.1, desired_action_stddev=0.2, adaptation_coefficient=1.01):
+        """
+        Note that initial_stddev and current_stddev refer to std of parameter noise, 
+        but desired_action_stddev refers to (as name notes) desired std in action space
+        """
+        self.initial_stddev = initial_stddev
+        self.desired_action_stddev = desired_action_stddev
+        self.adaptation_coefficient = adaptation_coefficient
+
+        self.current_stddev = initial_stddev
+
+    def adapt(self, distance):
+        if distance > self.desired_action_stddev:
+            # Decrease stddev.
+            self.current_stddev /= self.adaptation_coefficient
+        else:
+            # Increase stddev.
+            self.current_stddev *= self.adaptation_coefficient
+
+    def get_stats(self):
+        stats = {
+            'param_noise_stddev': self.current_stddev,
+        }
+        return stats
+
+    def __repr__(self):
+        fmt = 'AdaptiveParameterNoise(initial_stddev={}, desired_action_stddev={}, adaptation_coefficient={})'
+        return fmt.format(self.initial_stddev, self.desired_action_stddev, self.adaptation_coefficient)
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
